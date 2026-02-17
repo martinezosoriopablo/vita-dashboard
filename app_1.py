@@ -2035,34 +2035,6 @@ with tab_strat:
     </div>
     """, unsafe_allow_html=True)
 
-    # Mix transformation
-    st.markdown('<div class="section-header">Transformación del Revenue Mix</div>', unsafe_allow_html=True)
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown("<div style='text-align:center; color:#718096; font-size:1.05rem;'>MES 4 (HOY)</div>", unsafe_allow_html=True)
-        fig = go.Figure(go.Pie(labels=['Payouts B2B\n73%','Payouts B2C\n11%','Exchange\n14%','Payins B2B\n2%'],
-            values=[73,11,14,2], hole=0.5,
-            marker=dict(colors=[COLORS['payouts_b2b'],COLORS['payouts_b2c'],COLORS['exchange'],COLORS['payins_b2b']],
-                       line=dict(color='#2D3748', width=2)),
-            textinfo='percent', textfont=dict(size=15, family='Plus Jakarta Sans')))
-        fig = plotly_theme(fig, height=300)
-        fig.update_layout(showlegend=False, annotations=[
-            dict(text="<b>73%</b><br>B2B", x=0.5, y=0.5, font=dict(size=16, color=COLORS['danger']), showarrow=False)])
-        st.plotly_chart(fig, use_container_width=True)
-    with col2:
-        st.markdown("<div style='text-align:center; color:#718096; font-size:1.05rem;'>MES 16 (TARGET)</div>", unsafe_allow_html=True)
-        fig = go.Figure(go.Pie(
-            labels=['Payouts B2B\n54%','Payouts B2C\n10%','Exchange\n11%','Payins B2B\n15%','Forwards\n5%','Vita Card\n5%'],
-            values=[54,10,11,15,5,5], hole=0.5,
-            marker=dict(colors=[COLORS['payouts_b2b'],COLORS['payouts_b2c'],COLORS['exchange'],COLORS['payins_b2b'],
-                               COLORS['forwards'],COLORS['vita_card']],
-                       line=dict(color='#2D3748', width=2)),
-            textinfo='percent', textfont=dict(size=15, family='Plus Jakarta Sans')))
-        fig = plotly_theme(fig, height=300)
-        fig.update_layout(showlegend=False, annotations=[
-            dict(text="<b>50%</b><br>B2B", x=0.5, y=0.5, font=dict(size=16, color=COLORS['success']), showarrow=False)])
-        st.plotly_chart(fig, use_container_width=True)
-
 # ══════════════════════════════════════════════════════════════
 # PAGE 6: SCENARIO BUILDER
 # ══════════════════════════════════════════════════════════════
