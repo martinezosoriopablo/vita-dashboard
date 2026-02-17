@@ -3230,6 +3230,15 @@ Clientes B2B: <b>{v_clients_b2b:.0f}</b> + Payins: <b>{v_clients_payins}</b>
     rev_per_user_m16_val = st.session_state.get('rev_per_user_total_m16', BASE['rev_per_user_total_b2b'] * 1.2)
     client_growth_val = st.session_state.get('client_growth', 1.5)
 
+    # Revenue por línea desde session_state
+    v_rev_b2b_16 = st.session_state.get('scenario_rev_b2b', BASE['rev_payouts_b2b'] * 1.8)
+    v_rev_b2c_16 = st.session_state.get('scenario_rev_b2c', BASE['rev_payouts_b2c'] * 2.5)
+    v_rev_ex_16 = st.session_state.get('scenario_rev_ex', BASE['rev_exchange'] * 2.0)
+    v_rev_pi_16 = st.session_state.get('scenario_rev_pi', BASE['rev_payins_b2b'] * 18)
+    v_fwd_rev = st.session_state.get('scenario_fwd_rev', 45000)
+    v_card_rev = st.session_state.get('scenario_card_rev', 40000)
+    v_rev_new_16 = v_fwd_rev + v_card_rev
+
     # Revenue B2B (capturado por modelo de clientes) vs no-B2B
     rev_b2b_lines_m16 = v_rev_b2b_16 + v_rev_ex_16 + v_rev_pi_16  # solo líneas B2B
     rev_other_m16 = v_rev_b2c_16 + v_rev_new_16  # B2C + nuevos productos
