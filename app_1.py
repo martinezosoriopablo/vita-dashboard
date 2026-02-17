@@ -582,12 +582,15 @@ with st.sidebar:
     arpu_b2b_m16 = rev_b2b_proj / clients_payouts if clients_payouts > 0 else 0
     new_clients_b2b = clients_payouts - 396
 
-    # Feedback
+    # Feedback con tasa de crecimiento implícita
     rebaja_text = f'+ {additional_rate:.0f} por rebaja' if additional_drop_bp > 0 else ''
     paises_text = f'+ {country_growth} por {new_countries} países' if new_countries > 0 else ''
+    growth_pct_payouts = ((rev_b2b_proj / BASE['rev_payouts_b2b']) - 1) * 100 if BASE['rev_payouts_b2b'] > 0 else 0
+    growth_color = COLORS['success'] if growth_pct_payouts >= 50 else COLORS['warning']
     st.markdown(f"""<div style="font-size:0.78rem; color:{COLORS['muted']}; line-height:1.6; background:#F7FAFC; padding:10px; border-radius:6px; margin-top:8px;">
 Ritmo: <b>{monthly_client_rate:.0f} cli/mes</b> ({base_rate} orgánico {rebaja_text}) {paises_text}<br>
-Clientes M16: <b>{clients_payouts:,}</b> → Revenue: <b>{format_k(rev_b2b_proj)}/mes</b></div>""", unsafe_allow_html=True)
+Clientes M16: <b>{clients_payouts:,}</b> → Revenue: <b>{format_k(rev_b2b_proj)}/mes</b><br>
+<span style="color:{growth_color}; font-weight:700;">Crecimiento implícito: +{growth_pct_payouts:.0f}%</span></div>""", unsafe_allow_html=True)
 
     # Para compatibilidad con código existente
     mult_b2b = gtv_b2b_m16 / BASE_GTV_B2B if BASE_GTV_B2B > 0 else 1
@@ -616,20 +619,10 @@ Clientes M16: <b>{clients_payouts:,}</b> → Revenue: <b>{format_k(rev_b2b_proj)
     gtv_payins_m16 = clients_payins_m16 * avg_gtv_payins_client
     rev_payins_proj = gtv_payins_m16 * (take_payins_derived / 100)
 
+    growth_pct_payins = ((rev_payins_proj / BASE['rev_payins_b2b']) - 1) * 100 if BASE['rev_payins_b2b'] > 0 else 0
     st.markdown(f"""<div style='background:#F7FAFC; padding:10px; border-radius:6px; font-size:0.8rem; margin-top:8px;'>
-        <div style='display:flex; justify-content:space-between; margin-bottom:4px;'>
-            <span style='color:{COLORS["muted"]}'>Take Rate (escala):</span>
-            <span style='font-weight:700;'>{take_payins_derived:.2f}%</span>
-        </div>
-        <div style='display:flex; justify-content:space-between; margin-bottom:4px;'>
-            <span style='color:{COLORS["muted"]}'>GTV M16:</span>
-            <span style='font-weight:700;'>{format_k(gtv_payins_m16)}</span>
-        </div>
-        <div style='display:flex; justify-content:space-between;'>
-            <span style='color:{COLORS["muted"]}'>Revenue M16:</span>
-            <span style='font-weight:700;'>{format_k(rev_payins_proj)}</span>
-        </div>
-    </div>""", unsafe_allow_html=True)
+Take Rate: <b>{take_payins_derived:.2f}%</b> | GTV: <b>{format_k(gtv_payins_m16)}</b> | Revenue: <b>{format_k(rev_payins_proj)}</b><br>
+<span style="color:{COLORS['success']}; font-weight:700;">Crecimiento: ×{rev_payins_proj/BASE['rev_payins_b2b']:.0f}</span></div>""", unsafe_allow_html=True)
 
     # Para compatibilidad - calcular mult_payins equivalente
     mult_payins = rev_payins_proj / BASE['rev_payins_b2b'] if BASE['rev_payins_b2b'] > 0 else 1
@@ -2115,6 +2108,16 @@ with tab_scenario:
     st.session_state['scenario_margin_m16'] = margin_proj
     st.session_state['scenario_gastos_m16'] = total_gastos_proj
     st.session_state['scenario_multiple'] = multiple
+    st.session_state['scenario_gtv_m16'] = gtv_m16
+    st.session_state['scenario_ebitda_m16'] = total_rev_proj - total_gastos_proj
+    st.session_state['scenario_rev_b2b'] = rev_b2b_proj
+    st.session_state['scenario_rev_b2c'] = rev_b2c_proj
+    st.session_state['scenario_rev_ex'] = rev_ex_proj
+    st.session_state['scenario_rev_pi'] = rev_pi_proj
+    st.session_state['scenario_fwd_rev'] = fwd_rev
+    st.session_state['scenario_card_rev'] = card_rev
+    st.session_state['scenario_clients_b2b'] = clients_b2b_m16
+    st.session_state['scenario_clients_payins'] = clients_payins_m16
 
     # KPI cards
     color = COLORS['success'] if multiple >= 2.5 else COLORS['warning'] if multiple >= 2 else COLORS['danger']
@@ -3108,73 +3111,46 @@ with tab_val:
     st.markdown('<div class="page-subtitle">6 metodologías independientes — Base vs M16 proyectado</div>', unsafe_allow_html=True)
 
     # ═══════════════════════════════════════════════════════════
-    # PASO 1: SLIDERS EN EXPANDER
+    # VALORES HEREDADOS DEL SCENARIO BUILDER (sidebar)
     # ═══════════════════════════════════════════════════════════
-    with st.expander("⚙️ Parámetros del Modelo", expanded=True):
-        pc1, pc2, pc3 = st.columns(3)
-        with pc1:
-            st.markdown('<div style="font-weight:600; color:#2D3748; margin-bottom:0.5rem; font-size:0.9rem;">📈 Crecimiento</div>', unsafe_allow_html=True)
-            v_gr_b2b = st.slider("Payouts B2B (×)", 1.2, 2.5, 1.8, 0.1, key="val_gr_b2b")
-            v_gr_b2c = st.slider("Payouts B2C (×)", 1.5, 3.5, 2.5, 0.1, key="val_gr_b2c")
-            v_gr_ex = st.slider("Exchange (×)", 1.2, 3.0, 2.0, 0.1, key="val_gr_ex")
-            v_gr_pi = st.slider("Payins B2B (×)", 5.0, 30.0, 18.0, 1.0, key="val_gr_pi")
-        with pc2:
-            st.markdown('<div style="font-weight:600; color:#2D3748; margin-bottom:0.5rem; font-size:0.9rem;">💸 Costos</div>', unsafe_allow_html=True)
-            v_headcount = st.slider("Headcount M16", 58, 75, 64, 1, key="val_hc")
-            v_marketing = st.slider("Marketing/mes ($K)", 20, 80, 55, 5, key="val_mkt") * 1000
-            v_new_countries = st.slider("Nuevos países", 0, 3, 1, 1, key="val_countries")
-        with pc3:
-            st.markdown('<div style="font-weight:600; color:#2D3748; margin-bottom:0.5rem; font-size:0.9rem;">🚀 Innovación</div>', unsafe_allow_html=True)
-            v_t_fwd = st.toggle("Forwards FX", value=True, key="val_fwd")
-            v_fwd_rev = st.slider("Rev Forwards ($K/mo)", 15, 80, 45, 5, key="val_fwd_rev") * 1000 if v_t_fwd else 0
-            v_t_ai = st.toggle("AI Sales Agent", value=True, key="val_ai")
-            v_ai_save = 14000 if v_t_ai else 0
-            v_t_card = st.toggle("Vita Card", value=True, key="val_card")
-            v_card_rev = st.slider("Vita Card ($K/mo)", 10, 80, 40, 5, key="val_card_rev") * 1000 if v_t_card else 0
+    v_rev_m16 = st.session_state.get('scenario_rev_m16', BASE_REVENUE * 2)
+    v_gastos_m16 = st.session_state.get('scenario_gastos_m16', BASE_GASTOS * 1.5)
+    v_gtv_m16 = st.session_state.get('scenario_gtv_m16', BASE_GTV_B2B * 2)
+    v_multiple = st.session_state.get('scenario_multiple', 2.0)
+    v_clients_b2b = st.session_state.get('scenario_clients_b2b', 600)
+    v_clients_payins = st.session_state.get('scenario_clients_payins', 50)
+
+    # Mostrar resumen del escenario heredado
+    st.markdown(f"""<div style="background:#F0FFF4; border:1px solid {COLORS['success']}; border-radius:8px; padding:12px; margin-bottom:16px;">
+<span style="font-size:0.9rem; font-weight:700; color:{COLORS['success']};">📊 Escenario del Scenario Builder (sidebar)</span><br>
+<span style="font-size:0.85rem; color:{COLORS['text']};">
+Revenue M16: <b>{format_k(v_rev_m16)}/mes</b> (×{v_multiple:.1f}) |
+Clientes B2B: <b>{v_clients_b2b:.0f}</b> + Payins: <b>{v_clients_payins}</b>
+</span></div>""", unsafe_allow_html=True)
 
     # ═══════════════════════════════════════════════════════════
-    # PASO 2: MOTOR DE CÁLCULO
+    # MOTOR DE CÁLCULO (usando valores del Scenario Builder)
     # ═══════════════════════════════════════════════════════════
-    # Revenue M16
-    v_rev_b2b_16 = BASE['rev_payouts_b2b'] * v_gr_b2b
-    v_rev_b2c_16 = BASE['rev_payouts_b2c'] * v_gr_b2c
-    v_rev_ex_16 = BASE['rev_exchange'] * v_gr_ex
-    v_rev_pi_16 = BASE['rev_payins_b2b'] * v_gr_pi
-    v_rev_new_16 = v_fwd_rev + v_card_rev
-    v_rev_m16 = v_rev_b2b_16 + v_rev_b2c_16 + v_rev_ex_16 + v_rev_pi_16 + v_rev_new_16
-
     # Anualizados
     v_rev_annual_base = BASE_REVENUE * 12
     v_rev_annual_m16 = v_rev_m16 * 12
 
     # Crecimiento implícito
-    v_growth_multiple = v_rev_m16 / BASE_REVENUE if BASE_REVENUE > 0 else 1
+    v_growth_multiple = v_multiple
     v_annual_growth_pct = (v_growth_multiple - 1) * 100
 
-    # Costos M16 (modelo fijo/variable)
-    v_fixed_m16 = (58 * 1836 + max(0, v_headcount - 58) * 2500 +
-                   BASE_ADMIN + v_new_countries * 5000 + BASE_BANKING + BASE_INVERSIONES - v_ai_save)
-
     v_gtv_base = BASE_GTV_B2B + BASE_GTV_B2C
-    v_gtv_m16 = v_gtv_base * v_gr_b2b * 1.1
-    v_cogs_m16 = v_gtv_m16 * 0.0016
-    v_tax_m16 = v_rev_m16 * 0.073
-    v_variable_m16 = v_cogs_m16 + v_tax_m16 + v_marketing
-
-    v_total_cost_m16 = v_fixed_m16 + v_variable_m16
+    v_gtv_annual_base = v_gtv_base * 12
+    v_gtv_annual_m16 = v_gtv_m16 * 12
 
     # Márgenes
     v_ebitda_base = BASE_REVENUE - BASE_GASTOS
     v_ebitda_base_annual = v_ebitda_base * 12
     v_margin_base = v_ebitda_base / BASE_REVENUE * 100 if BASE_REVENUE > 0 else 0
 
-    v_ebitda_m16 = v_rev_m16 - v_total_cost_m16
+    v_ebitda_m16 = v_rev_m16 - v_gastos_m16
     v_ebitda_m16_annual = v_ebitda_m16 * 12
     v_margin_m16 = v_ebitda_m16 / v_rev_m16 * 100 if v_rev_m16 > 0 else 0
-
-    # GTV anualizado
-    v_gtv_annual_base = v_gtv_base * 12
-    v_gtv_annual_m16 = v_gtv_m16 * 12
 
     # Rule of 40
     v_rule40_base = 8 + v_margin_base  # ~8% growth MoM anualizado + margen
