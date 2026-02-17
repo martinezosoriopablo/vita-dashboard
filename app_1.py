@@ -549,29 +549,125 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown("**📈 Crecimiento por Línea**")
-    mult_b2b = st.slider("Payouts B2B (×)", 1.0, 2.5, 1.8, 0.1, key="sb_b2b")
-    mult_b2c = st.slider("Payouts B2C (×)", 1.0, 4.0, 2.5, 0.1, key="sb_b2c")
-    mult_exchange = st.slider("Exchange (×)", 1.0, 3.0, 2.0, 0.1, key="sb_ex")
-    mult_payins = st.slider("Payins B2B (×)", 1.0, 30.0, 18.0, 1.0, key="sb_pi")
-    payins_target = BASE['rev_payins_b2b'] * mult_payins
-    st.markdown(f"""<span style="font-size:0.75rem; color:{COLORS['muted']};">
-        Target: {format_k(payins_target)}/mes
-        (producto de 2 meses — creció ×4.3 de M3 a M4)
-    </span>""", unsafe_allow_html=True)
+    # ══════════════════════════════════════════════════════════════
+    # PAYOUTS B2B — Clientes = f(take rate, países)
+    # ══════════════════════════════════════════════════════════════
+    st.markdown(f'<div style="font-size:0.75rem; color:{COLORS["muted"]}; margin-bottom:4px; font-weight:700;">PAYOUTS B2B</div>', unsafe_allow_html=True)
 
-    st.markdown(f"<div style='font-size:0.75rem;color:{COLORS['muted']};margin-top:12px;'>Composición del crecimiento B2B:</div>", unsafe_allow_html=True)
-    pct_from_clients = st.slider("% por más clientes (vs ticket mayor)", 30, 80, 60, 5, key="pct_clients",
-        help="60% = la mayoría del crecimiento viene de captar clientes nuevos. 40% = viene de que cada cliente mueve más volumen.")
-    pct_from_volume = 100 - pct_from_clients
-    st.markdown(f"""<span style="font-size:0.75rem; color:{COLORS['muted']};">
-        Crecimiento ×{mult_b2b}: {pct_from_clients}% más clientes +
-        {pct_from_volume}% más volumen por cliente (ARPU)
-    </span>""", unsafe_allow_html=True)
+    take_b2b = st.slider("Take Rate Payouts B2B (%)", 0.30, 0.55, 0.50, 0.01, key="sb_tr_b2b",
+        help="M4: 0.55%. Bajar precio = más clientes. Dato: drop 0.70→0.55 generó 18 clientes/mes")
 
-    st.markdown("**💰 Take Rates**")
-    take_b2b = st.slider("Take Rate B2B (%)", 0.35, 0.60, 0.50, 0.01, key="sb_tr_b2b")
-    take_payins = st.slider("Take Rate Payins (%)", 0.40, 1.00, 0.65, 0.05, key="sb_tr_pi")
+    new_countries = st.slider("Nuevos Países", 0, 3, 3, 1, key="sb_countries",
+        help="Bolivia, Perú, España — cada país aporta ~50 clientes B2B/año")
+
+    clients_per_country = 50  # clientes B2B por país nuevo en 12 meses
+
+    # Ritmo orgánico: 15bp de baja = 18 clientes/mes (dato real M1-M4)
+    # Cada bp adicional de baja = 18/15 = 1.2 clientes/mes más
+    base_rate = 18  # clientes/mes con drop actual (0.70→0.55)
+    additional_drop_bp = max(0, (0.55 - take_b2b) * 100)  # bp adicionales
+    additional_rate = additional_drop_bp * (18 / 15)  # proporcional al dato real
+    monthly_client_rate = base_rate + additional_rate
+
+    # Clientes M16
+    organic_growth = int(monthly_client_rate * 12)
+    country_growth = new_countries * clients_per_country
+    clients_payouts = 396 + organic_growth + country_growth
+    clients_b2b_m16 = clients_payouts  # alias para compatibilidad
+
+    # Revenue
+    gtv_per_client_payouts = np.mean(DATA['avg_gtv_user_b2b'])
+    gtv_b2b_m16 = clients_payouts * gtv_per_client_payouts  # GTV total para COGS
+    rev_b2b_proj = clients_payouts * gtv_per_client_payouts * (take_b2b / 100)
+    arpu_b2b_m16 = rev_b2b_proj / clients_payouts if clients_payouts > 0 else 0
+    new_clients_b2b = clients_payouts - 396
+
+    # Feedback
+    rebaja_text = f'+ {additional_rate:.0f} por rebaja' if additional_drop_bp > 0 else ''
+    paises_text = f'+ {country_growth} por {new_countries} países' if new_countries > 0 else ''
+    st.markdown(f"""<div style="font-size:0.78rem; color:{COLORS['muted']}; line-height:1.6; background:#F7FAFC; padding:10px; border-radius:6px; margin-top:8px;">
+Ritmo: <b>{monthly_client_rate:.0f} cli/mes</b> ({base_rate} orgánico {rebaja_text}) {paises_text}<br>
+Clientes M16: <b>{clients_payouts:,}</b> → Revenue: <b>{format_k(rev_b2b_proj)}/mes</b></div>""", unsafe_allow_html=True)
+
+    # Para compatibilidad con código existente
+    mult_b2b = gtv_b2b_m16 / BASE_GTV_B2B if BASE_GTV_B2B > 0 else 1
+    pct_from_clients = 60  # Default
+
+    # ══════════════════════════════════════════════════════════════
+    # PAYINS B2B — "Clientes mandan → take rate de escala → revenue"
+    # ══════════════════════════════════════════════════════════════
+    st.markdown("<hr style='margin:16px 0; border:none; border-top:1px solid #E2E8F0;'>", unsafe_allow_html=True)
+    st.markdown("**📊 PAYINS B2B**")
+    st.markdown(f"<div style='font-size:0.72rem;color:{COLORS['muted']};margin-bottom:8px;'>Clientes mandan → take rate de escala → revenue</div>", unsafe_allow_html=True)
+
+    # Payins: producto nuevo, target es escalar agresivamente
+    # M4 tiene ~2 clientes, target 50 clientes = ×25 en clientes
+    clients_payins_m16 = st.slider("Clientes Payins M16", 5, 100, 50, 5, key="sb_cli_pi",
+        help="Target de clientes exportadores")
+
+    # Take rate se deriva de la escala: pocos = 1.37% (actual), muchos = 0.65%
+    # Curva logarítmica para que baje más rápido al principio
+    scale_factor = np.log(clients_payins_m16 / 2) / np.log(100 / 2)  # 0 at 2 clients, 1 at 100
+    scale_factor = min(1.0, max(0.0, scale_factor))
+    take_payins_derived = 1.37 - scale_factor * (1.37 - 0.65)
+
+    # GTV per Payins client (M4: $491K GTV / ~2 clientes = ~$250K/cliente)
+    avg_gtv_payins_client = 250000
+    gtv_payins_m16 = clients_payins_m16 * avg_gtv_payins_client
+    rev_payins_proj = gtv_payins_m16 * (take_payins_derived / 100)
+
+    st.markdown(f"""<div style='background:#F7FAFC; padding:10px; border-radius:6px; font-size:0.8rem; margin-top:8px;'>
+        <div style='display:flex; justify-content:space-between; margin-bottom:4px;'>
+            <span style='color:{COLORS["muted"]}'>Take Rate (escala):</span>
+            <span style='font-weight:700;'>{take_payins_derived:.2f}%</span>
+        </div>
+        <div style='display:flex; justify-content:space-between; margin-bottom:4px;'>
+            <span style='color:{COLORS["muted"]}'>GTV M16:</span>
+            <span style='font-weight:700;'>{format_k(gtv_payins_m16)}</span>
+        </div>
+        <div style='display:flex; justify-content:space-between;'>
+            <span style='color:{COLORS["muted"]}'>Revenue M16:</span>
+            <span style='font-weight:700;'>{format_k(rev_payins_proj)}</span>
+        </div>
+    </div>""", unsafe_allow_html=True)
+
+    # Para compatibilidad - calcular mult_payins equivalente
+    mult_payins = rev_payins_proj / BASE['rev_payins_b2b'] if BASE['rev_payins_b2b'] > 0 else 1
+    take_payins = take_payins_derived
+    clients_payins = clients_payins_m16  # alias para el resumen
+
+    # ══════════════════════════════════════════════════════════════
+    # RESUMEN TOTAL B2B
+    # ══════════════════════════════════════════════════════════════
+    total_b2b_m4 = 398
+    total_b2b_m16 = clients_payouts + clients_payins
+    mult_total = total_b2b_m16 / total_b2b_m4
+    target_color = COLORS['success'] if mult_total >= 2.8 else COLORS['warning']
+    meta_check = '✅ Meta 3×' if mult_total >= 2.8 else ''
+
+    st.markdown(f"""<div style="background:{COLORS['card_bg']}; border-radius:10px; padding:0.8rem; margin-top:0.8rem; border:1px solid #E2E8F0;">
+<span style="font-size:0.85rem; color:{COLORS['text']};">👥 Clientes B2B: {total_b2b_m4} → <b style="color:{target_color};">{total_b2b_m16:,}</b> (<b style="color:{target_color};">{mult_total:.1f}x</b>) {meta_check}</span><br>
+<span style="font-size:0.75rem; color:{COLORS['muted']};">Payouts: {clients_payouts:,} (orgánico + países) | Payins: {clients_payins} (exportadores)</span>
+</div>""", unsafe_allow_html=True)
+
+    # ══════════════════════════════════════════════════════════════
+    # EXCHANGE + B2C
+    # ══════════════════════════════════════════════════════════════
+    st.markdown("<hr style='margin:16px 0; border:none; border-top:1px solid #E2E8F0;'>", unsafe_allow_html=True)
+    st.markdown("**📊 OTROS PRODUCTOS**")
+
+    # Exchange: correlacionado con Payouts B2B (mismo cliente usa ambos)
+    exchange_ratio = BASE['rev_exchange'] / BASE['rev_payouts_b2b']  # ~0.19
+    rev_ex_proj = rev_b2b_proj * exchange_ratio
+    mult_exchange = rev_ex_proj / BASE['rev_exchange'] if BASE['rev_exchange'] > 0 else 1
+
+    st.markdown(f"""<div style='font-size:0.8rem; color:{COLORS["muted"]}; margin-bottom:8px;'>
+        Exchange: correlacionado con Payouts B2B ({exchange_ratio*100:.0f}% del revenue B2B)
+        → <span style='font-weight:700;'>{format_k(rev_ex_proj)}</span>
+    </div>""", unsafe_allow_html=True)
+
+    mult_b2c = st.slider("Payouts B2C (×)", 1.0, 4.0, 2.5, 0.1, key="sb_b2c",
+        help="España + Vita Card como drivers")
 
     st.markdown("**👥 Operaciones**")
     hc_target = st.slider("Headcount Target", 58, 80, 64, 1, key="sb_hc")
@@ -595,7 +691,16 @@ with st.sidebar:
                 unsafe_allow_html=True)
 
     mktg_monthly = st.slider("Marketing ($K/mes)", 20, 100, 55, 5, key="sb_mktg")
-    new_countries = st.slider("Países nuevos", 0, 3, 1, 1, key="sb_countries")
+
+    # Mostrar CAC implícito basado en marketing y nuevos clientes B2B
+    total_new_clients_12m = new_clients_b2b + clients_payins_m16  # Nuevos B2B + Payins
+    mktg_12m = mktg_monthly * 1000 * 12
+    effective_cac = mktg_12m / total_new_clients_12m if total_new_clients_12m > 0 else 0
+    cac_color = COLORS['success'] if effective_cac < 1500 else COLORS['warning'] if effective_cac < 2500 else COLORS['danger']
+    st.markdown(f"""<div style='background:#F7FAFC; padding:8px; border-radius:6px; font-size:0.78rem; margin-top:6px;'>
+        <span style='color:{COLORS["muted"]}'>Marketing 12m:</span> {format_k(mktg_12m)} ÷ {total_new_clients_12m:.0f} clientes nuevos =
+        <span style='color:{cac_color}; font-weight:700;'>CAC ${effective_cac:,.0f}</span>
+    </div>""", unsafe_allow_html=True)
 
     st.markdown("**🚀 Innovación**")
     fwd_on = st.toggle("Forwards FX", value=True, key="sb_fwd_on")
@@ -842,48 +947,29 @@ with tab_exec:
         </div>""", unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
-    col1, col2 = st.columns([3, 2])
-
-    with col1:
-        st.markdown('<div class="section-header">📈 Evolución Revenue</div>', unsafe_allow_html=True)
-        fig = go.Figure()
-        fig.add_trace(go.Bar(x=MESES, y=DATA['revenue'],
-            marker=dict(color=[COLORS['primary'], COLORS['primary'], COLORS['secondary'], COLORS['primary']]),
-            text=[format_k(v) for v in DATA['revenue']], textposition='inside',
-            textfont=dict(size=16, color='#FFFFFF', family='Plus Jakarta Sans'),
-            name='Revenue'))
-        # Línea de promedio (run-rate)
-        fig.add_hline(y=BASE_REVENUE, line_dash="dot", line_color=COLORS['secondary'], line_width=2,
-            annotation_text=f"Run-Rate: {format_k(BASE_REVENUE)}",
-            annotation_position="top right",
-            annotation_font_color=COLORS['secondary'],
-            annotation_font_size=15)
-        fig.add_annotation(x='Mes 3', y=DATA['revenue'][2]+25000,
-            text="📅 Nov: spike<br>pre-Navidad", showarrow=True, arrowhead=2,
-            arrowcolor=COLORS['warning'], font=dict(size=10, color=COLORS['warning']), ax=0, ay=-40)
-        fig.add_annotation(x='Mes 4', y=DATA['revenue'][3]+25000,
-            text="📅 Dic: cierre<br>de año", showarrow=True, arrowhead=2,
-            arrowcolor=COLORS['muted'], font=dict(size=10, color=COLORS['muted']), ax=0, ay=-40)
-        fig = plotly_theme(fig, height=350)
-        fig.update_layout(showlegend=False, yaxis_title="USD/mes")
-        fig.update_yaxes(range=[0, 560000])
-        st.plotly_chart(fig, use_container_width=True)
-
-    with col2:
-        st.markdown('<div class="section-header">🎯 Progreso hacia 3x</div>', unsafe_allow_html=True)
-        target = BASE_REVENUE * 3  # Meta basada en run-rate promedio
-        fig = go.Figure(go.Indicator(
-            mode="gauge+number+delta", value=BASE_REVENUE,
-            number={'prefix': "$", 'font': {'size': 36, 'family': 'Inter'}, 'valueformat': ',.0f'},
-            delta={'reference': target, 'valueformat': ',.0f', 'prefix': '$'},
-            gauge={'axis': {'range': [0, target], 'tickformat': ',.0f'},
-                   'bar': {'color': COLORS['primary'], 'thickness': 0.7},
-                   'bgcolor': '#E2E8F0', 'borderwidth': 0,
-                   'threshold': {'line': {'color': COLORS['success'], 'width': 3}, 'thickness': 0.8, 'value': target}}))
-        fig = plotly_theme(fig, height=280)
-        fig.update_layout(annotations=[dict(text=f"Meta: {format_k(target)}/mes (3× Run-Rate)", x=0.5, y=-0.1,
-            font=dict(size=13, color=COLORS['muted']), showarrow=False)])
-        st.plotly_chart(fig, use_container_width=True)
+    st.markdown('<div class="section-header">📈 Evolución Revenue</div>', unsafe_allow_html=True)
+    fig = go.Figure()
+    fig.add_trace(go.Bar(x=MESES, y=DATA['revenue'],
+        marker=dict(color=[COLORS['primary'], COLORS['primary'], COLORS['secondary'], COLORS['primary']]),
+        text=[format_k(v) for v in DATA['revenue']], textposition='inside',
+        textfont=dict(size=16, color='#FFFFFF', family='Plus Jakarta Sans'),
+        name='Revenue'))
+    # Línea de promedio (run-rate)
+    fig.add_hline(y=BASE_REVENUE, line_dash="dot", line_color=COLORS['secondary'], line_width=2,
+        annotation_text=f"Run-Rate: {format_k(BASE_REVENUE)}",
+        annotation_position="top right",
+        annotation_font_color=COLORS['secondary'],
+        annotation_font_size=15)
+    fig.add_annotation(x='Mes 3', y=DATA['revenue'][2]+25000,
+        text="📅 Nov: spike<br>pre-Navidad", showarrow=True, arrowhead=2,
+        arrowcolor=COLORS['warning'], font=dict(size=10, color=COLORS['warning']), ax=0, ay=-40)
+    fig.add_annotation(x='Mes 4', y=DATA['revenue'][3]+25000,
+        text="📅 Dic: cierre<br>de año", showarrow=True, arrowhead=2,
+        arrowcolor=COLORS['muted'], font=dict(size=10, color=COLORS['muted']), ax=0, ay=-40)
+    fig = plotly_theme(fig, height=350)
+    fig.update_layout(showlegend=False, yaxis_title="USD/mes")
+    fig.update_yaxes(range=[0, 560000])
+    st.plotly_chart(fig, use_container_width=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
     col1, col2 = st.columns(2)
@@ -1986,10 +2072,9 @@ with tab_scenario:
 
     # Calculate (using variables from sidebar) - BASE = run-rate promedio M1-M4
     base_rev = BASE_REVENUE  # Run-rate promedio, no M4
-    rev_b2b_proj = BASE['rev_payouts_b2b'] * mult_b2b * (take_b2b / 0.55)
+    # rev_b2b_proj, rev_ex_proj, rev_payins_proj ya vienen calculados del sidebar
     rev_b2c_proj = BASE['rev_payouts_b2c'] * mult_b2c
-    rev_ex_proj = BASE['rev_exchange'] * mult_exchange
-    rev_pi_proj = BASE['rev_payins_b2b'] * mult_payins * (take_payins / 1.37)  # BASE ya usa M4 para payins
+    rev_pi_proj = rev_payins_proj  # Usa el valor derivado del sidebar (clientes × GTV × take rate)
     total_rev_proj = rev_b2b_proj + rev_b2c_proj + rev_ex_proj + rev_pi_proj + fwd_rev + card_rev
 
     # ═══════════════════════════════════════════════════════════
@@ -2020,9 +2105,10 @@ with tab_scenario:
     total_fixed = personal_proj + admin_proj + bank_proj + inv_proj + fwd_cost - ai_savings
 
     # --- COSTOS VARIABLES (escalan con volumen/revenue) ---
-    # COGS: anclado al GTV implícito, no al revenue
-    gtv_base = BASE_GTV_B2B + BASE_GTV_B2C  # GTV total Payouts promedio M1-M4
-    gtv_m16 = gtv_base * mult_b2b * 1.1  # B2B drive + 10% B2C contribution growth
+    # COGS: anclado al GTV total (B2B + B2C + Payins)
+    # GTV B2B viene del sidebar (gtv_b2b_m16), B2C crece con mult_b2c
+    gtv_b2c_m16 = BASE_GTV_B2C * mult_b2c
+    gtv_m16 = gtv_b2b_m16 + gtv_b2c_m16 + gtv_payins_m16  # GTV total M16
     cogs_rate = 0.0016  # ~0.16% del GTV (promedio M2-M4)
     cogs_proj = gtv_m16 * cogs_rate
 
@@ -2047,7 +2133,8 @@ with tab_scenario:
     monthly_net = total_rev_proj - total_gastos_proj
 
     # Inversión requerida para el plan (CAC, infraestructura, nuevos hires)
-    cac_investment = (BASE['b2b_users_est']*(mult_b2b-1))*1200 + 3000*(mult_b2c-1)*15 + 80*2000
+    # Usar new_clients_b2b (derivado del sidebar) y clientes Payins
+    cac_investment = new_clients_b2b * 1200 + 3000*(mult_b2c-1)*15 + clients_payins_m16 * 2000
     total_investment = cac_investment + 150000 + 150000 + (hc_target-58)*1900*12
     # Nota: cash_proj y gap se recalculan después de la trayectoria para reflejar el modo de contratación
 
@@ -2084,6 +2171,59 @@ with tab_scenario:
             <div class="scenario-big">{format_k(rev_per_emp_proj)}</div>
             <div style="color:#718096; font-size:0.8rem; text-transform:uppercase;">Rev/Emp</div>
             <div style="color:{re_color}; font-weight:700;">vs {format_k(base_rev_emp_sb)} base</div>
+        </div>""", unsafe_allow_html=True)
+
+    # ═══════════════════════════════════════════════════════════
+    # RESUMEN DE CLIENTES — Base vs M16 con Target 3×
+    # ═══════════════════════════════════════════════════════════
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown('<div class="section-header">👥 RESUMEN DE CLIENTES</div>', unsafe_allow_html=True)
+
+    # Clientes target 3× (triplicar base)
+    target_clients_b2b = BASE['users_b2b'] * 3
+    target_clients_payins = 100  # Target para producto nuevo
+    pct_target_b2b = (clients_b2b_m16 / target_clients_b2b * 100) if target_clients_b2b > 0 else 0
+    pct_target_payins = (clients_payins_m16 / target_clients_payins * 100) if target_clients_payins > 0 else 0
+
+    col_cli1, col_cli2, col_cli3 = st.columns(3)
+
+    with col_cli1:
+        cli_color = COLORS['success'] if clients_b2b_m16 >= target_clients_b2b else COLORS['warning']
+        st.markdown(f"""
+        <div class="scenario-output" style="text-align:center;">
+            <div style="font-size:0.75rem; color:{COLORS['muted']}; text-transform:uppercase;">PAYOUTS B2B</div>
+            <div style="font-size:2rem; font-weight:800; color:{COLORS['dark']};">{clients_b2b_m16:.0f}</div>
+            <div style="font-size:0.85rem; color:{COLORS['muted']};">vs {BASE['users_b2b']:.0f} hoy</div>
+            <div style="font-size:0.75rem; color:{cli_color}; font-weight:700;">
+                {pct_target_b2b:.0f}% del target 3× ({target_clients_b2b:.0f})
+            </div>
+        </div>""", unsafe_allow_html=True)
+
+    with col_cli2:
+        cli_pi_color = COLORS['success'] if clients_payins_m16 >= target_clients_payins else COLORS['warning']
+        st.markdown(f"""
+        <div class="scenario-output" style="text-align:center;">
+            <div style="font-size:0.75rem; color:{COLORS['muted']}; text-transform:uppercase;">PAYINS B2B</div>
+            <div style="font-size:2rem; font-weight:800; color:{COLORS['dark']};">{clients_payins_m16}</div>
+            <div style="font-size:0.85rem; color:{COLORS['muted']};">vs ~2 hoy</div>
+            <div style="font-size:0.75rem; color:{cli_pi_color}; font-weight:700;">
+                {pct_target_payins:.0f}% del target ({target_clients_payins})
+            </div>
+        </div>""", unsafe_allow_html=True)
+
+    with col_cli3:
+        total_clients_m16 = clients_b2b_m16 + clients_payins_m16
+        total_clients_base = BASE['users_b2b'] + 2  # ~2 Payins actuales
+        client_mult = total_clients_m16 / total_clients_base if total_clients_base > 0 else 1
+        mult_color = COLORS['success'] if client_mult >= 2.5 else COLORS['warning'] if client_mult >= 1.5 else COLORS['danger']
+        st.markdown(f"""
+        <div class="scenario-output" style="text-align:center;">
+            <div style="font-size:0.75rem; color:{COLORS['muted']}; text-transform:uppercase;">TOTAL B2B</div>
+            <div style="font-size:2rem; font-weight:800; color:{COLORS['dark']};">{total_clients_m16:.0f}</div>
+            <div style="font-size:0.85rem; color:{COLORS['muted']};">vs {total_clients_base:.0f} hoy</div>
+            <div style="font-size:0.75rem; color:{mult_color}; font-weight:700;">
+                ×{client_mult:.1f} crecimiento
+            </div>
         </div>""", unsafe_allow_html=True)
 
     # Revenue Mix donut - Base vs M16
@@ -2647,12 +2787,22 @@ with tab_scenario:
     fwd_evol, card_evol = [], []
     rev_total_evol, costs_total_evol, net_evol, margin_evol, cash_evol = [], [], [], [], []
 
+    # Client tracking arrays
+    clients_b2b_evol, clients_payins_evol = [], []
+    arpu_b2b_evol = []
+
+    # M4 clientes reales
+    clients_b2b_m4 = DATA['b2b_users_est'][3]  # 396
+    clients_payins_m4 = 2  # estimado
+
     for m in range(13):  # m=0 is M4 (real), m=1..12 is M5..M16 (S-curve)
         if m == 0:
             # M4 = datos REALES
             rb, rc, re, rp = rev_b2b_m4, rev_b2c_m4, rev_ex_m4, rev_pi_m4
             fwd_m, card_m = 0, 0  # Productos nuevos no existían en M4
             cost_m = costs_m4
+            cli_b2b_m = clients_b2b_m4
+            cli_pi_m = clients_payins_m4
         else:
             # M5-M16: S-curve desde M4 real hacia M16 proyectado
             f = m / 12
@@ -2668,12 +2818,22 @@ with tab_scenario:
 
             cost_m = costs_m4 + (total_gastos_proj - costs_m4) * s_factor * 0.8
 
+            # Clientes con S-curve
+            cli_b2b_m = clients_b2b_m4 + (clients_b2b_m16 - clients_b2b_m4) * s_factor
+            cli_pi_m = clients_payins_m4 + (clients_payins_m16 - clients_payins_m4) * s_factor
+
         rev_b2b_evol.append(rb)
         rev_b2c_evol.append(rc)
         rev_ex_evol.append(re)
         rev_pi_evol.append(rp)
         fwd_evol.append(fwd_m)
         card_evol.append(card_m)
+
+        # Client tracking
+        clients_b2b_evol.append(cli_b2b_m)
+        clients_payins_evol.append(cli_pi_m)
+        arpu_b2b_m = rb / cli_b2b_m if cli_b2b_m > 0 else 0
+        arpu_b2b_evol.append(arpu_b2b_m)
 
         rev_tot = rb + rc + re + rp + fwd_m + card_m
         rev_total_evol.append(rev_tot)
@@ -2776,16 +2936,52 @@ with tab_scenario:
     )
     st.plotly_chart(fig_lines, use_container_width=True)
 
-    # 3. Monthly Table - Build complete HTML
-    table_html = """<table style="width:100%; border-collapse:collapse; font-size:0.85rem; font-family:'JetBrains Mono', monospace;">
+    # 3. Client Evolution Chart (PARTE 7)
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    fig_clients = make_subplots(specs=[[{"secondary_y": True}]])
+
+    # Clientes B2B
+    fig_clients.add_trace(go.Bar(
+        x=meses_evol, y=clients_b2b_evol, name='Clientes Payouts B2B',
+        marker_color=COLORS['payouts_b2b'], opacity=0.8
+    ), secondary_y=False)
+
+    # Clientes Payins
+    fig_clients.add_trace(go.Bar(
+        x=meses_evol, y=clients_payins_evol, name='Clientes Payins B2B',
+        marker_color=COLORS['payins_b2b'], opacity=0.8
+    ), secondary_y=False)
+
+    # ARPU B2B (linea secundaria)
+    fig_clients.add_trace(go.Scatter(
+        x=meses_evol, y=arpu_b2b_evol, name='ARPU B2B',
+        mode='lines+markers', line=dict(color=COLORS['warning'], width=2),
+        marker=dict(size=6)
+    ), secondary_y=True)
+
+    fig_clients = plotly_theme(fig_clients, height=300)
+    fig_clients.update_layout(
+        title=dict(text="Evolución de Clientes B2B y ARPU", font=dict(size=14)),
+        barmode='group',
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5)
+    )
+    fig_clients.update_yaxes(title_text="# Clientes", secondary_y=False)
+    fig_clients.update_yaxes(title_text="ARPU (USD)", secondary_y=True)
+    st.plotly_chart(fig_clients, use_container_width=True)
+
+    # 4. Monthly Table - Build complete HTML with clients and ARPU (PARTE 8)
+    table_html = """<table style="width:100%; border-collapse:collapse; font-size:0.78rem; font-family:'JetBrains Mono', monospace;">
         <thead>
             <tr style="background:#F7FAFC; border-bottom:2px solid #E2E8F0;">
-                <th style="padding:0.5rem 0.4rem; text-align:center; font-weight:700; color:#2D3748;">Mes</th>
-                <th style="padding:0.5rem 0.4rem; text-align:center; font-weight:700; color:#2D3748;">Revenue</th>
-                <th style="padding:0.5rem 0.4rem; text-align:center; font-weight:700; color:#2D3748;">Costos</th>
-                <th style="padding:0.5rem 0.4rem; text-align:center; font-weight:700; color:#2D3748;">Net Income</th>
-                <th style="padding:0.5rem 0.4rem; text-align:center; font-weight:700; color:#2D3748;">Margen Op.</th>
-                <th style="padding:0.5rem 0.4rem; text-align:center; font-weight:700; color:#2D3748;">Cash Acum.</th>
+                <th style="padding:0.5rem 0.3rem; text-align:center; font-weight:700; color:#2D3748;">Mes</th>
+                <th style="padding:0.5rem 0.3rem; text-align:center; font-weight:700; color:#2D3748;">Clientes B2B</th>
+                <th style="padding:0.5rem 0.3rem; text-align:center; font-weight:700; color:#2D3748;">ARPU</th>
+                <th style="padding:0.5rem 0.3rem; text-align:center; font-weight:700; color:#2D3748;">Revenue</th>
+                <th style="padding:0.5rem 0.3rem; text-align:center; font-weight:700; color:#2D3748;">Costos</th>
+                <th style="padding:0.5rem 0.3rem; text-align:center; font-weight:700; color:#2D3748;">Net</th>
+                <th style="padding:0.5rem 0.3rem; text-align:center; font-weight:700; color:#2D3748;">Margen</th>
+                <th style="padding:0.5rem 0.3rem; text-align:center; font-weight:700; color:#2D3748;">Cash</th>
             </tr>
         </thead>
         <tbody>"""
@@ -2796,38 +2992,45 @@ with tab_scenario:
         net = net_evol[i]
         margin = margin_evol[i]
         cash = cash_evol[i]
+        clients_b2b = clients_b2b_evol[i]
+        arpu_b2b = arpu_b2b_evol[i]
 
         net_color = COLORS['success'] if net > 0 else COLORS['danger']
         margin_color = COLORS['success'] if margin > 20 else COLORS['warning'] if margin > 10 else COLORS['danger']
         row_bg = "#FAFAFA" if i % 2 == 1 else "#FFFFFF"
 
         table_html += f'<tr style="background:{row_bg}; border-bottom:1px solid #E2E8F0;">'
-        table_html += f'<td style="padding:0.4rem 0.3rem; text-align:center; font-weight:600;">{mes}</td>'
-        table_html += f'<td style="padding:0.4rem 0.3rem; text-align:center;">{format_k(rev)}</td>'
-        table_html += f'<td style="padding:0.4rem 0.3rem; text-align:center; color:{COLORS["danger"]};">{format_k(cost)}</td>'
-        table_html += f'<td style="padding:0.4rem 0.3rem; text-align:center; color:{net_color}; font-weight:600;">{format_k(net)}</td>'
-        table_html += f'<td style="padding:0.4rem 0.3rem; text-align:center; color:{margin_color}; font-weight:600;">{margin:.1f}%</td>'
-        table_html += f'<td style="padding:0.4rem 0.3rem; text-align:center; font-weight:600;">${cash/1e6:.2f}M</td>'
+        table_html += f'<td style="padding:0.35rem 0.2rem; text-align:center; font-weight:600;">{mes}</td>'
+        table_html += f'<td style="padding:0.35rem 0.2rem; text-align:center;">{clients_b2b:.0f}</td>'
+        table_html += f'<td style="padding:0.35rem 0.2rem; text-align:center; color:{COLORS["warning"]}; font-weight:600;">${arpu_b2b:,.0f}</td>'
+        table_html += f'<td style="padding:0.35rem 0.2rem; text-align:center;">{format_k(rev)}</td>'
+        table_html += f'<td style="padding:0.35rem 0.2rem; text-align:center; color:{COLORS["danger"]};">{format_k(cost)}</td>'
+        table_html += f'<td style="padding:0.35rem 0.2rem; text-align:center; color:{net_color}; font-weight:600;">{format_k(net)}</td>'
+        table_html += f'<td style="padding:0.35rem 0.2rem; text-align:center; color:{margin_color}; font-weight:600;">{margin:.0f}%</td>'
+        table_html += f'<td style="padding:0.35rem 0.2rem; text-align:center;">${cash/1e6:.1f}M</td>'
         table_html += '</tr>'
 
     table_html += "</tbody></table>"
 
     st.markdown(table_html, unsafe_allow_html=True)
 
+    # ARPU summary note
+    st.markdown(f"""<div style="font-size:0.78rem; color:{COLORS['muted']}; padding:0.5rem;">
+ARPU Payouts M4: $669 (mes estacionalmente bajo). Promedio M1-M4: $883. Rango: $669-$1,102 por estacionalidad.</div>""", unsafe_allow_html=True)
+
     # ═══════════════════════════════════════════════════════════
     # EVOLUCIÓN DE CLIENTES B2B — PROYECTADO A M16
     # ═══════════════════════════════════════════════════════════
     st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown('<div class="section-header">👥 Evolución de Clientes B2B — Proyectado a M16</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header">👥 Métricas por Cliente B2B — Proyectado a M16</div>', unsafe_allow_html=True)
 
-    # Clientes M16 = clientes base × multiplicador de crecimiento
-    # Usamos el slider pct_from_clients para controlar la composición
-    client_growth = 1 + (mult_b2b - 1) * (pct_from_clients / 100)
-    ticket_growth = 1 + (mult_b2b - 1) * (1 - pct_from_clients / 100)
-    users_b2b_m16 = BASE['users_b2b'] * client_growth
-    ticket_m16 = BASE['avg_gtv_user_b2b'] * ticket_growth
+    # Usar clients_b2b_m16 derivado del sidebar (GTV ÷ avg GTV per client)
+    users_b2b_m16 = clients_b2b_m16
+    client_growth = users_b2b_m16 / BASE['users_b2b'] if BASE['users_b2b'] > 0 else 1
+    ticket_m16 = gtv_b2b_m16 / users_b2b_m16 if users_b2b_m16 > 0 else BASE['avg_gtv_user_b2b']
+    ticket_growth = ticket_m16 / BASE['avg_gtv_user_b2b'] if BASE['avg_gtv_user_b2b'] > 0 else 1
 
-    # Revenue por cliente M16
+    # Revenue por cliente M16 (derivado de revenue ÷ clientes)
     rev_per_user_b2b_m16 = rev_b2b_proj / users_b2b_m16 if users_b2b_m16 > 0 else 0
     rev_per_user_ex_m16 = rev_ex_proj / users_b2b_m16 if users_b2b_m16 > 0 else 0
     rev_per_user_pi_m16 = rev_pi_proj / users_b2b_m16 if users_b2b_m16 > 0 else 0
